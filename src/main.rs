@@ -74,13 +74,6 @@ enum EventPayload {
     Review(PullRequestReviewPayload),
     ReviewComment(PullRequestReviewCommentPayload),
     Issue(IssuesEventPayload),
-    Ignore {},
-}
-
-impl Default for EventPayload {
-    fn default() -> Self {
-        EventPayload::Ignore {}
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -88,7 +81,7 @@ struct Event {
     r#type: String,
     repo: Repo,
     #[serde(skip_deserializing)]
-    payload: EventPayload,
+    payload: Option<EventPayload>,
     created_at: DateTime<Utc>,
 }
 
@@ -189,7 +182,6 @@ fn convert(events: &Vec<&EventPayload>) -> Vec<Entry> {
                     actions: vec![String::from("reviewed")],
                 });
             }
-            EventPayload::Ignore {} => (),
         }
     }
 
@@ -206,21 +198,21 @@ fn value_to_events(json: Value) -> serde_json::Result<Vec<Event>> {
         es[i].payload = match es[i].r#type.as_ref() {
             "PullRequestEvent" => {
                 let p: PullRequestEventPayload = serde_json::from_value(payload)?;
-                EventPayload::PullRequest(p)
+                Some(EventPayload::PullRequest(p))
             }
             "IssuesEvent" => {
                 let p: IssuesEventPayload = serde_json::from_value(payload)?;
-                EventPayload::Issue(p)
+                Some(EventPayload::Issue(p))
             }
             "PullRequestReviewEvent" => {
                 let p: PullRequestReviewPayload = serde_json::from_value(payload)?;
-                EventPayload::Review(p)
+                Some(EventPayload::Review(p))
             }
             "PullRequestReviewCommentEvent" => {
                 let p: PullRequestReviewCommentPayload = serde_json::from_value(payload)?;
-                EventPayload::ReviewComment(p)
+                Some(EventPayload::ReviewComment(p))
             }
-            _ => EventPayload::Ignore {},
+            _ => None,
         }
     }
     Ok(es)
@@ -280,15 +272,12 @@ fn main() {
     let events_filtered = events
         .iter()
         .filter(|x| x.created_at > DateTime::from(since))
-        .filter(|x| match x.payload {
-            EventPayload::Ignore {} => false,
-            _ => true,
-        })
+        .filter(|x| x.payload.is_some())
         .collect();
 
     for (repo, events) in group_by_repos(events_filtered) {
         println!("- {}:", repo);
-        let payloads = events.iter().map(|x| &x.payload).collect();
+        let payloads = events.iter().map(|x| x.payload.as_ref().unwrap()).collect();
         for e in convert(&payloads) {
             println!("  * {}", e)
         }
