@@ -240,24 +240,49 @@ fn value_to_events(json: Value) -> serde_json::Result<Vec<Event>> {
     about = "Generate a report for morning standup using Github."
 )]
 struct Opt {
-    #[structopt(short = "u", long, env = "STANDUP_USER")]
+    #[structopt(short = "u", long, env = "STANDUP_USER", empty_values = false)]
     /// Github user login
     user: String,
 
-    #[structopt(short = "t", long, env = "STANDUP_GITHUB_TOKEN")]
+    #[structopt(short = "t", long, env = "STANDUP_GITHUB_TOKEN", empty_values = false)]
     /// Personal Github token
     token: String,
 
-    #[structopt(short = "s", long, default_value = "yesteday")]
-    /// Non-default values are not implemented
-    since: String,
+    #[structopt(
+        short = "s",
+        long,
+        default_value = "yesterday",
+        parse(try_from_str = "parse_since")
+    )]
+    /// Valid values: yesterday, friday, yyyy-mm-dd
+    since: DateTime<Utc>,
+}
+
+fn parse_since(v: &str) -> Result<DateTime<Utc>, &str> {
+    match v {
+        "yesterday" => {
+            let yesteday = Utc::today() - Duration::days(1);
+            Ok(yesteday.and_hms(0, 0, 0))
+        }
+        "friday" => {
+            let mut r = Utc::today();
+            while r.weekday() != Weekday::Fri {
+                r = r - Duration::days(1);
+            }
+            Ok(r.and_hms(0, 0, 0))
+        }
+        _ => {
+            let r = NaiveDate::parse_from_str(v, "%Y-%m-%d");
+            match r {
+                Ok(v) => Ok(DateTime::from_utc(v.and_hms(0, 0, 0), Utc)),
+                Err(_) => Err("unsupported value"),
+            }
+        }
+    }
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
     let opt = Opt::from_args();
-    // TODO support other values
-    let yesteday = Local::today() - Duration::days(1);
-    let since = yesteday.and_hms(0, 0, 0);
 
     // documentation says per_page isn't supported but it is :-D
     // TODO add pagination
@@ -277,7 +302,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let events = value_to_events(json).map_err(|e| format!("Can not parse events: {}", e))?;
     let events_filtered = events
         .iter()
-        .filter(|x| x.created_at > DateTime::from(since))
+        .filter(|x| x.created_at > opt.since)
         .filter(|x| x.payload.is_some())
         .collect();
 
