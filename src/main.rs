@@ -167,14 +167,14 @@ fn group_by_repos(events: Vec<&Event>) -> HashMap<&String, Vec<&Event>> {
     let mut res = HashMap::new();
 
     for e in events {
-        let v = res.entry(&e.repo.name).or_insert(Vec::new());
+        let v = res.entry(&e.repo.name).or_insert_with(Vec::new);
         v.push(e);
     }
 
     res
 }
 
-fn convert(events: &Vec<&EventPayload>, login: &String) -> Vec<Entry> {
+fn convert(events: &[&EventPayload], login: &str) -> Vec<Entry> {
     let mut res = HashMap::new();
 
     for event in events {
@@ -218,7 +218,7 @@ fn convert(events: &Vec<&EventPayload>, login: &String) -> Vec<Entry> {
             }
             EventPayload::Review(p) => {
                 let pr = &p.pull_request;
-                if &pr.user.login == login {
+                if pr.user.login == login {
                     continue;
                 }
 
@@ -231,7 +231,7 @@ fn convert(events: &Vec<&EventPayload>, login: &String) -> Vec<Entry> {
             }
             EventPayload::ReviewComment(p) => {
                 let pr = &p.pull_request;
-                if &pr.user.login == login {
+                if pr.user.login == login {
                     continue;
                 }
 
@@ -245,7 +245,7 @@ fn convert(events: &Vec<&EventPayload>, login: &String) -> Vec<Entry> {
         }
     }
 
-    res.values().map(|x| x.clone()).collect()
+    res.values().cloned().collect()
 }
 
 // Cli
@@ -322,7 +322,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     for (repo, events) in group_by_repos(events_filtered) {
         println!("- {}:", repo);
-        let payloads = events.iter().map(|x| x.payload.as_ref().unwrap()).collect();
+        let payloads: Vec<&EventPayload> =
+            events.iter().map(|x| x.payload.as_ref().unwrap()).collect();
         for e in convert(&payloads, &opt.user) {
             println!("  * {}", e)
         }
