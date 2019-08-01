@@ -10,8 +10,10 @@
 // Another TODO: figure how to handle prs updates (push)
 
 use std::collections::HashMap;
-use std::env;
+use std::error::Error;
 use std::fmt;
+use std::io::{stderr, Write};
+use std::process;
 
 use chrono::prelude::*;
 use reqwest::header::AUTHORIZATION;
@@ -225,11 +227,11 @@ fn value_to_events(json: Value) -> serde_json::Result<Vec<Event>> {
     about = "Generate a report for morning standup using Github."
 )]
 struct Opt {
-    #[structopt(short = "u", long, default_value = "$STANDUP_USER")]
+    #[structopt(short = "u", long, env = "STANDUP_USER")]
     /// Github user login
     user: String,
 
-    #[structopt(short = "t", long, default_value = "$STANDUP_GITHUB_TOKEN")]
+    #[structopt(short = "t", long, env = "STANDUP_GITHUB_TOKEN")]
     /// Personal Github token
     token: String,
 
@@ -238,25 +240,8 @@ struct Opt {
     since: String,
 }
 
-impl Opt {
-    fn parse() -> Self {
-        let mut opt = Opt::from_args();
-        if opt.token == "$STANDUP_GITHUB_TOKEN" {
-            opt.token =
-                env::var("STANDUP_GITHUB_TOKEN").expect("Can not read STANDUP_GITHUB_TOKEN");
-        }
-        if opt.user == "$STANDUP_USER" {
-            opt.user = env::var("STANDUP_USER").expect("Can not read STANDUP_USER");
-        }
-
-        opt
-    }
-}
-
-fn main() {
-    // FIXME replace panics with normal error and exit code
-
-    let opt = Opt::parse();
+fn run() -> Result<(), Box<dyn Error>> {
+    let opt = Opt::from_args();
     // TODO support other values
     let yesteday = Local::today() - Duration::days(1);
     let since = yesteday.and_hms(0, 0, 0);
@@ -270,13 +255,13 @@ fn main() {
         ))
         .header(AUTHORIZATION, format!("token {}", opt.token))
         .send()
-        .expect("Request to Github failed")
+        .map_err(|e| format!("Request to Github failed: {}", e))?
         .error_for_status()
-        .expect("Incorrect response status")
+        .map_err(|e| format!("Incorrect response status: {}", e))?
         .json()
-        .expect("Can not parse Github response");
+        .map_err(|e| format!("Can not parse Github response: {}", e))?;
 
-    let events = value_to_events(json).unwrap();
+    let events = value_to_events(json).map_err(|e| format!("Can not parse events: {}", e))?;
     let events_filtered = events
         .iter()
         .filter(|x| x.created_at > DateTime::from(since))
@@ -288,6 +273,18 @@ fn main() {
         let payloads = events.iter().map(|x| x.payload.as_ref().unwrap()).collect();
         for e in convert(&payloads) {
             println!("  * {}", e)
+        }
+    }
+
+    Ok(())
+}
+
+fn main() {
+    match run() {
+        Ok(_) => (),
+        Err(e) => {
+            writeln!(&mut stderr(), "{}", e).ok();
+            process::exit(1);
         }
     }
 }
