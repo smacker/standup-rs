@@ -254,7 +254,7 @@ struct Opt {
         default_value = "yesterday",
         parse(try_from_str = "parse_since")
     )]
-    /// Valid values: yesterday, friday, yyyy-mm-dd
+    /// Valid values: yesterday, friday, today, yyyy-mm-dd
     since: DateTime<Utc>,
 }
 
@@ -271,6 +271,7 @@ fn parse_since(v: &str) -> Result<DateTime<Utc>, &str> {
             }
             Ok(r.and_hms(0, 0, 0))
         }
+        "today" => Ok(Utc::today().and_hms(0, 0, 0)),
         _ => {
             let r = NaiveDate::parse_from_str(v, "%Y-%m-%d");
             match r {
