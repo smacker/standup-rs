@@ -259,27 +259,26 @@ struct Opt {
 }
 
 fn parse_since(v: &str) -> Result<DateTime<Utc>, &str> {
-    match v {
-        "yesterday" => {
-            let yesteday = Utc::today() - Duration::days(1);
-            Ok(yesteday.and_hms(0, 0, 0))
-        }
+    let d = match v {
+        "yesterday" => Local::today() - Duration::days(1),
         "friday" => {
-            let mut r = Utc::today();
+            let mut r = Local::today();
             while r.weekday() != Weekday::Fri {
                 r = r - Duration::days(1);
             }
-            Ok(r.and_hms(0, 0, 0))
+            r
         }
-        "today" => Ok(Utc::today().and_hms(0, 0, 0)),
+        "today" => Local::today(),
         _ => {
             let r = NaiveDate::parse_from_str(v, "%Y-%m-%d");
             match r {
-                Ok(v) => Ok(DateTime::from_utc(v.and_hms(0, 0, 0), Utc)),
-                Err(_) => Err("unsupported value"),
+                Ok(v) => Local.from_local_date(&v).earliest().unwrap(),
+                Err(_) => return Err("unsupported value"),
             }
         }
-    }
+    };
+
+    Ok(DateTime::from(d.and_hms(0, 0, 0)))
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
