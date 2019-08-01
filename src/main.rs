@@ -30,12 +30,18 @@ struct Repo {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct User {
+    login: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct PullRequest {
     id: u64,
     html_url: String,
     title: String,
     #[serde(default)]
     merged: bool,
+    user: User,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -123,7 +129,7 @@ fn group_by_repos(events: Vec<&Event>) -> HashMap<&String, Vec<&Event>> {
     res
 }
 
-fn convert(events: &Vec<&EventPayload>) -> Vec<Entry> {
+fn convert(events: &Vec<&EventPayload>, login: &String) -> Vec<Entry> {
     let mut res = HashMap::new();
 
     for event in events {
@@ -165,9 +171,12 @@ fn convert(events: &Vec<&EventPayload>) -> Vec<Entry> {
                     entry.actions.push(p.action.clone());
                 }
             }
-            // FIXME do only when author != login
             EventPayload::Review(p) => {
                 let pr = &p.pull_request;
+                if &pr.user.login == login {
+                    continue;
+                }
+
                 res.entry(pr.id).or_insert(Entry {
                     r#type: String::from("PR"),
                     title: pr.title.clone(),
@@ -177,6 +186,10 @@ fn convert(events: &Vec<&EventPayload>) -> Vec<Entry> {
             }
             EventPayload::ReviewComment(p) => {
                 let pr = &p.pull_request;
+                if &pr.user.login == login {
+                    continue;
+                }
+
                 res.entry(pr.id).or_insert(Entry {
                     r#type: String::from("PR"),
                     title: pr.title.clone(),
@@ -271,7 +284,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     for (repo, events) in group_by_repos(events_filtered) {
         println!("- {}:", repo);
         let payloads = events.iter().map(|x| x.payload.as_ref().unwrap()).collect();
-        for e in convert(&payloads) {
+        for e in convert(&payloads, &opt.user) {
             println!("  * {}", e)
         }
     }
