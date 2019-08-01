@@ -238,17 +238,25 @@ struct Opt {
     since: String,
 }
 
+impl Opt {
+    fn parse() -> Self {
+        let mut opt = Opt::from_args();
+        if opt.token == "$STANDUP_GITHUB_TOKEN" {
+            opt.token =
+                env::var("STANDUP_GITHUB_TOKEN").expect("Can not read STANDUP_GITHUB_TOKEN");
+        }
+        if opt.user == "$STANDUP_USER" {
+            opt.user = env::var("STANDUP_USER").expect("Can not read STANDUP_USER");
+        }
+
+        opt
+    }
+}
+
 fn main() {
     // FIXME replace panics with normal error and exit code
 
-    // FIXME move it to Opt method
-    let mut opt = Opt::from_args();
-    if opt.token == "$STANDUP_GITHUB_TOKEN" {
-        opt.token = env::var("STANDUP_GITHUB_TOKEN").expect("Can not read STANDUP_GITHUB_TOKEN");
-    }
-    if opt.user == "$STANDUP_USER" {
-        opt.user = env::var("STANDUP_USER").expect("Can not read STANDUP_USER");
-    }
+    let opt = Opt::parse();
     // TODO support other values
     let yesteday = Local::today() - Duration::days(1);
     let since = yesteday.and_hms(0, 0, 0);
