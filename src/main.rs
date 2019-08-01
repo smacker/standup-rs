@@ -17,8 +17,7 @@ use std::process;
 
 use chrono::prelude::*;
 use reqwest::header::AUTHORIZATION;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::{Deserialize, Deserializer, Serialize};
 use structopt::StructOpt;
 use time::Duration;
 
@@ -84,13 +83,59 @@ enum EventPayload {
     Issue(IssuesEventPayload),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 struct Event {
     r#type: String,
     repo: Repo,
-    #[serde(skip_deserializing)]
     payload: Option<EventPayload>,
     created_at: DateTime<Utc>,
+}
+
+impl<'de> Deserialize<'de> for Event {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct EventHelper {
+            r#type: String,
+            repo: Repo,
+            created_at: DateTime<Utc>,
+            payload: serde_json::Value,
+        }
+
+        let helper = EventHelper::deserialize(deserializer)?;
+        let payload = match helper.r#type.as_ref() {
+            "PullRequestEvent" => {
+                let p = PullRequestEventPayload::deserialize(helper.payload)
+                    .map_err(serde::de::Error::custom)?;
+                Some(EventPayload::PullRequest(p))
+            }
+            "IssuesEvent" => {
+                let p = IssuesEventPayload::deserialize(helper.payload)
+                    .map_err(serde::de::Error::custom)?;
+                Some(EventPayload::Issue(p))
+            }
+            "PullRequestReviewEvent" => {
+                let p = PullRequestReviewPayload::deserialize(helper.payload)
+                    .map_err(serde::de::Error::custom)?;
+                Some(EventPayload::Review(p))
+            }
+            "PullRequestReviewCommentEvent" => {
+                let p = PullRequestReviewCommentPayload::deserialize(helper.payload)
+                    .map_err(serde::de::Error::custom)?;
+                Some(EventPayload::ReviewComment(p))
+            }
+            _ => None,
+        };
+
+        Ok(Event {
+            r#type: helper.r#type,
+            repo: helper.repo,
+            created_at: helper.created_at,
+            payload,
+        })
+    }
 }
 
 // Result struct
@@ -203,36 +248,6 @@ fn convert(events: &Vec<&EventPayload>, login: &String) -> Vec<Entry> {
     res.values().map(|x| x.clone()).collect()
 }
 
-// FIXME there must be better way to do this
-// I need something like adjacently tag on field, not a container
-// untagged is also an option but it can occasionally match to a wrong struct
-fn value_to_events(json: Value) -> serde_json::Result<Vec<Event>> {
-    let mut es: Vec<Event> = serde_json::from_value(json.clone())?;
-    for (i, v) in json.as_array().unwrap().iter().enumerate() {
-        let payload = v.as_object().unwrap().get("payload").unwrap().clone();
-        es[i].payload = match es[i].r#type.as_ref() {
-            "PullRequestEvent" => {
-                let p: PullRequestEventPayload = serde_json::from_value(payload)?;
-                Some(EventPayload::PullRequest(p))
-            }
-            "IssuesEvent" => {
-                let p: IssuesEventPayload = serde_json::from_value(payload)?;
-                Some(EventPayload::Issue(p))
-            }
-            "PullRequestReviewEvent" => {
-                let p: PullRequestReviewPayload = serde_json::from_value(payload)?;
-                Some(EventPayload::Review(p))
-            }
-            "PullRequestReviewCommentEvent" => {
-                let p: PullRequestReviewCommentPayload = serde_json::from_value(payload)?;
-                Some(EventPayload::ReviewComment(p))
-            }
-            _ => None,
-        }
-    }
-    Ok(es)
-}
-
 // Cli
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -286,7 +301,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     // documentation says per_page isn't supported but it is :-D
     // TODO add pagination
-    let json: Value = reqwest::Client::new()
+    let events: Vec<Event> = reqwest::Client::new()
         .get(&format!(
             "https://api.github.com/users/{}/events?per_page=100",
             opt.user
@@ -299,7 +314,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         .json()
         .map_err(|e| format!("Can not parse Github response: {}", e))?;
 
-    let events = value_to_events(json).map_err(|e| format!("Can not parse events: {}", e))?;
     let events_filtered = events
         .iter()
         .filter(|x| x.created_at > opt.since)
