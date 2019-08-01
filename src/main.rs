@@ -17,23 +17,23 @@ use std::process;
 
 use chrono::prelude::*;
 use reqwest::header::AUTHORIZATION;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer};
 use structopt::StructOpt;
 use time::Duration;
 
 // Github response structs
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct Repo {
     name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct User {
     login: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PullRequest {
     id: u64,
     html_url: String,
@@ -43,39 +43,39 @@ struct PullRequest {
     user: User,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PullRequestEventPayload {
     action: String,
     number: u16,
     pull_request: PullRequest,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct Issue {
     id: u64,
     html_url: String,
     title: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct IssuesEventPayload {
     action: String,
     issue: Issue,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PullRequestReviewPayload {
     action: String,
     pull_request: PullRequest,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PullRequestReviewCommentPayload {
     action: String,
     pull_request: PullRequest,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Deserialize)]
 enum EventPayload {
     PullRequest(PullRequestEventPayload),
     Review(PullRequestReviewPayload),
@@ -83,7 +83,6 @@ enum EventPayload {
     Issue(IssuesEventPayload),
 }
 
-#[derive(Debug, Serialize)]
 struct Event {
     r#type: String,
     repo: Repo,
@@ -249,7 +248,7 @@ fn convert(events: &[&EventPayload], login: &str) -> Vec<Entry> {
 }
 
 // Cli
-#[derive(Debug, StructOpt)]
+#[derive(StructOpt)]
 #[structopt(
     name = "standup-rs",
     about = "Generate a report for morning standup using Github."
