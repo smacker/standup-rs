@@ -46,7 +46,6 @@ struct PullRequest {
 #[derive(Deserialize)]
 struct PullRequestEventPayload {
     action: String,
-    number: u16,
     pull_request: PullRequest,
 }
 
@@ -84,7 +83,6 @@ enum EventPayload {
 }
 
 struct Event {
-    r#type: String,
     repo: Repo,
     payload: Option<EventPayload>,
     created_at: DateTime<Utc>,
@@ -129,7 +127,6 @@ impl<'de> Deserialize<'de> for Event {
         };
 
         Ok(Event {
-            r#type: helper.r#type,
             repo: helper.repo,
             created_at: helper.created_at,
             payload,
@@ -216,6 +213,10 @@ fn convert(events: &[&EventPayload], login: &str) -> Vec<Entry> {
                 }
             }
             EventPayload::Review(p) => {
+                if p.action != "submitted" {
+                    continue;
+                }
+
                 let pr = &p.pull_request;
                 if pr.user.login == login {
                     continue;
@@ -229,6 +230,10 @@ fn convert(events: &[&EventPayload], login: &str) -> Vec<Entry> {
                 });
             }
             EventPayload::ReviewComment(p) => {
+                if p.action != "created" {
+                    continue;
+                }
+
                 let pr = &p.pull_request;
                 if pr.user.login == login {
                     continue;
