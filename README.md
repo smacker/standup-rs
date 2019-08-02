@@ -4,11 +4,12 @@
 Generate a report for morning standup using Github.
 
 USAGE:
-    standup_rs [OPTIONS] --token <token> --user <user>
+    standup_rs [FLAGS] [OPTIONS] --token <token> --user <user>
 
 FLAGS:
-    -h, --help       Prints help information
-    -V, --version    Prints version information
+    -h, --help              Prints help information
+        --issue-comments    Add issues with comments into a report
+    -V, --version           Prints version information
 
 OPTIONS:
     -s, --since <since>    Valid values: yesterday, friday, today, yyyy-mm-dd [default: yesterday]
@@ -19,11 +20,19 @@ OPTIONS:
 ### Example output
 
 ```
-- src-d/sourced-ui:
- * [PR] (merged) Sort lists in exported dashboards https://github.com/src-d/sourced-ui/pull/224
- * [PR] (merged) Use utf8 encoding for gitbase connection https://github.com/src-d/sourced-ui/pull/233
- * [PR] (merged, opened) Remove changed_on field from dashboard export https://github.com/src-d/sourced-ui/pull/232
-- src-d/sourced-ce:
- * [PR] (merged, opened) Fix incorrect example in documentation https://github.com/src-d/sourced-ce/pull/176
- * [PR] (reviewed) Add bblfsh calls to end-to-end tests https://github.com/src-d/sourced-ce/pull/175
+$ ./standup_rs -s today --issue-comments
+* src-d/sourced-ui:
+  - [Issue] (commented) Improve contributors charts https://github.com/src-d/sourced-ui/issues/194
+  - [PR] (merged) Cherry-pick: allow user re-order top-level tabs https://github.com/src-d/sourced-ui/pull/234
+  - [PR] (opened) Fix formatter for metadata progress chart https://github.com/src-d/sourced-ui/pull/236
+  - [PR] (opened) Improve contributors charts https://github.com/src-d/sourced-ui/pull/237
+* src-d/sourced-ce:
+  - [PR] (opened) Exclude forks by default https://github.com/src-d/sourced-ce/pull/185
+  - [PR] (reviewed) Separates local and orgs workdirs https://github.com/src-d/sourced-ce/pull/183
+  - [PR] (merged) Update .env file on init always https://github.com/src-d/sourced-ce/pull/181
+  - [PR] (reviewed) Adds monitoring of services when opening ui to eventually fail fast https://github.com/src-d/sourced-ce/pull/186
+  - [Issue] (commented) Separates local and orgs workdirs https://github.com/src-d/sourced-ce/pull/183
+* src-d/ghsync:
+  - [Issue] (commented) Add no-forks option https://github.com/src-d/ghsync/pull/60
+  - [PR] (merged) Add no-forks option https://github.com/src-d/ghsync/pull/60
 ```
