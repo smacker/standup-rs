@@ -14,7 +14,8 @@ FLAGS:
 OPTIONS:
     -s, --since <since>    Valid values: yesterday, friday, today, yyyy-mm-dd [default: yesterday]
     -t, --token <token>    Personal Github token [env: STANDUP_GITHUB_TOKEN=]
-    -u, --user <user>      Github user login [env: STANDUP_USER=]
+    -u, --until <until>    Valid values: today, yyyy-mm-dd
+    -l, --user <user>      Github user login [env: STANDUP_LOGIN=]
 ```
 
 ### Example output
