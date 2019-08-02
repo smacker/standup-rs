@@ -296,7 +296,7 @@ impl Convertor {
     about = "Generate a report for morning standup using Github."
 )]
 struct Opt {
-    #[structopt(short = "u", long, env = "STANDUP_USER", empty_values = false)]
+    #[structopt(short = "l", long, env = "STANDUP_LOGIN", empty_values = false)]
     /// Github user login
     user: String,
 
@@ -313,6 +313,10 @@ struct Opt {
     /// Valid values: yesterday, friday, today, yyyy-mm-dd
     since: DateTime<Utc>,
 
+    #[structopt(short = "u", long, parse(try_from_str = "parse_until"))]
+    /// Valid values: today, yyyy-mm-dd
+    until: Option<DateTime<Utc>>,
+
     #[structopt(long = "issue-comments")]
     /// Add issues with comments into a report
     issue_comments: bool,
@@ -328,6 +332,21 @@ fn parse_since(v: &str) -> Result<DateTime<Utc>, &str> {
             }
             r
         }
+        "today" => Local::today(),
+        _ => {
+            let r = NaiveDate::parse_from_str(v, "%Y-%m-%d");
+            match r {
+                Ok(v) => Local.from_local_date(&v).earliest().unwrap(),
+                Err(_) => return Err("unsupported value"),
+            }
+        }
+    };
+
+    Ok(DateTime::from(d.and_hms(0, 0, 0)))
+}
+
+fn parse_until(v: &str) -> Result<DateTime<Utc>, &str> {
+    let d = match v {
         "today" => Local::today(),
         _ => {
             let r = NaiveDate::parse_from_str(v, "%Y-%m-%d");
@@ -361,7 +380,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let events_filtered: Vec<&Event> = events
         .iter()
-        .filter(|x| x.created_at > opt.since)
+        .filter(|x| x.created_at >= opt.since)
+        .filter(|x| opt.until.map_or(true, |d| x.created_at < d))
         .filter(|x| x.payload.is_some())
         .collect();
 
