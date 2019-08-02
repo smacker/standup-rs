@@ -322,6 +322,12 @@ struct Opt {
     issue_comments: bool,
 }
 
+fn parse_date(v: &str) -> Result<Date<Local>, &str> {
+    NaiveDate::parse_from_str(v, "%Y-%m-%d")
+        .map(|v| Local.from_local_date(&v).earliest().unwrap())
+        .map_err(|_| "unsupported value")
+}
+
 fn parse_since(v: &str) -> Result<DateTime<Utc>, &str> {
     let d = match v {
         "yesterday" => Local::today() - Duration::days(1),
@@ -333,13 +339,7 @@ fn parse_since(v: &str) -> Result<DateTime<Utc>, &str> {
             r
         }
         "today" => Local::today(),
-        _ => {
-            let r = NaiveDate::parse_from_str(v, "%Y-%m-%d");
-            match r {
-                Ok(v) => Local.from_local_date(&v).earliest().unwrap(),
-                Err(_) => return Err("unsupported value"),
-            }
-        }
+        _ => parse_date(v)?,
     };
 
     Ok(DateTime::from(d.and_hms(0, 0, 0)))
@@ -348,13 +348,7 @@ fn parse_since(v: &str) -> Result<DateTime<Utc>, &str> {
 fn parse_until(v: &str) -> Result<DateTime<Utc>, &str> {
     let d = match v {
         "today" => Local::today(),
-        _ => {
-            let r = NaiveDate::parse_from_str(v, "%Y-%m-%d");
-            match r {
-                Ok(v) => Local.from_local_date(&v).earliest().unwrap(),
-                Err(_) => return Err("unsupported value"),
-            }
-        }
+        _ => parse_date(v)?,
     };
 
     Ok(DateTime::from(d.and_hms(0, 0, 0)))
