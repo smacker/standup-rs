@@ -16,7 +16,7 @@ use std::process;
 
 use chrono::prelude::*;
 use reqwest::header::AUTHORIZATION;
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use structopt::StructOpt;
 use time::Duration;
 
@@ -43,7 +43,7 @@ struct PullRequest {
 }
 
 #[derive(Deserialize)]
-struct PullRequestEventPayload {
+struct PullRequestPayload {
     action: String,
     pull_request: PullRequest,
 }
@@ -68,7 +68,7 @@ struct PullRequestReviewCommentPayload {
 }
 
 #[derive(Deserialize)]
-struct IssuesEventPayload {
+struct IssuePayload {
     action: String,
     issue: Issue,
 }
@@ -80,69 +80,26 @@ struct IssueCommentPayload {
 }
 
 #[derive(Deserialize)]
+#[serde(tag = "type", content = "payload")]
 enum EventPayload {
-    PullRequest(PullRequestEventPayload),
+    #[serde(rename = "PullRequestEvent")]
+    PullRequest(PullRequestPayload),
+    #[serde(rename = "PullRequestReviewEvent")]
     Review(PullRequestReviewPayload),
+    #[serde(rename = "PullRequestReviewCommentEvent")]
     ReviewComment(PullRequestReviewCommentPayload),
-    Issue(IssuesEventPayload),
+    #[serde(rename = "IssuesEvent")]
+    Issue(IssuePayload),
+    #[serde(rename = "IssueCommentEvent")]
     IssueComment(IssueCommentPayload),
 }
 
+#[derive(Deserialize)]
 struct Event {
     repo: Repo,
+    #[serde(flatten)]
     payload: Option<EventPayload>,
     created_at: DateTime<Utc>,
-}
-
-impl<'de> Deserialize<'de> for Event {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct EventHelper {
-            r#type: String,
-            repo: Repo,
-            created_at: DateTime<Utc>,
-            payload: serde_json::Value,
-        }
-
-        let helper = EventHelper::deserialize(deserializer)?;
-        let payload = match helper.r#type.as_ref() {
-            "PullRequestEvent" => {
-                let p = PullRequestEventPayload::deserialize(helper.payload)
-                    .map_err(serde::de::Error::custom)?;
-                Some(EventPayload::PullRequest(p))
-            }
-            "IssuesEvent" => {
-                let p = IssuesEventPayload::deserialize(helper.payload)
-                    .map_err(serde::de::Error::custom)?;
-                Some(EventPayload::Issue(p))
-            }
-            "PullRequestReviewEvent" => {
-                let p = PullRequestReviewPayload::deserialize(helper.payload)
-                    .map_err(serde::de::Error::custom)?;
-                Some(EventPayload::Review(p))
-            }
-            "PullRequestReviewCommentEvent" => {
-                let p = PullRequestReviewCommentPayload::deserialize(helper.payload)
-                    .map_err(serde::de::Error::custom)?;
-                Some(EventPayload::ReviewComment(p))
-            }
-            "IssueCommentEvent" => {
-                let p = IssueCommentPayload::deserialize(helper.payload)
-                    .map_err(serde::de::Error::custom)?;
-                Some(EventPayload::IssueComment(p))
-            }
-            _ => None,
-        };
-
-        Ok(Event {
-            repo: helper.repo,
-            created_at: helper.created_at,
-            payload,
-        })
-    }
 }
 
 // Result struct
