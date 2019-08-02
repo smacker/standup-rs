@@ -4,10 +4,9 @@
 // IssuesEvent - action: open
 // PullRequestReviewEvent
 // PullRequestReviewCommentEvent (merged with review event)
+// IssueCommentEvent (optional, disabled by default)
 //
-// TODO:
-// IssueCommentEvent
-// Another TODO: figure how to handle prs updates (push)
+// TODO: figure how to handle prs updates (push)
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -57,12 +56,6 @@ struct Issue {
 }
 
 #[derive(Deserialize)]
-struct IssuesEventPayload {
-    action: String,
-    issue: Issue,
-}
-
-#[derive(Deserialize)]
 struct PullRequestReviewPayload {
     action: String,
     pull_request: PullRequest,
@@ -75,11 +68,24 @@ struct PullRequestReviewCommentPayload {
 }
 
 #[derive(Deserialize)]
+struct IssuesEventPayload {
+    action: String,
+    issue: Issue,
+}
+
+#[derive(Deserialize)]
+struct IssueCommentPayload {
+    action: String,
+    issue: Issue,
+}
+
+#[derive(Deserialize)]
 enum EventPayload {
     PullRequest(PullRequestEventPayload),
     Review(PullRequestReviewPayload),
     ReviewComment(PullRequestReviewCommentPayload),
     Issue(IssuesEventPayload),
+    IssueComment(IssueCommentPayload),
 }
 
 struct Event {
@@ -123,6 +129,11 @@ impl<'de> Deserialize<'de> for Event {
                     .map_err(serde::de::Error::custom)?;
                 Some(EventPayload::ReviewComment(p))
             }
+            "IssueCommentEvent" => {
+                let p = IssueCommentPayload::deserialize(helper.payload)
+                    .map_err(serde::de::Error::custom)?;
+                Some(EventPayload::IssueComment(p))
+            }
             _ => None,
         };
 
@@ -159,97 +170,123 @@ impl fmt::Display for Entry {
 
 // Transformations
 
-fn group_by_repos(events: Vec<&Event>) -> HashMap<&String, Vec<&Event>> {
+fn group_by_repos<'a>(events: &[&'a Event]) -> HashMap<&'a String, Vec<&'a Event>> {
     let mut res = HashMap::new();
 
     for e in events {
         let v = res.entry(&e.repo.name).or_insert_with(Vec::new);
-        v.push(e);
+        v.push(*e);
     }
 
     res
 }
 
-fn convert(events: &[&EventPayload], login: &str) -> Vec<Entry> {
-    let mut res = HashMap::new();
+struct Convertor {
+    login: String,
+    issue_comments: bool,
+}
 
-    for event in events {
-        match event {
-            EventPayload::PullRequest(p) => {
-                let pr = &p.pull_request;
-                let entry = res.entry(pr.id).or_insert(Entry {
-                    r#type: String::from("PR"),
-                    title: pr.title.clone(),
-                    url: pr.html_url.clone(),
-                    actions: Vec::new(),
-                });
+impl Convertor {
+    fn convert(&self, events: &[&EventPayload]) -> Vec<Entry> {
+        let mut res = HashMap::new();
 
-                let mut action = p.action.clone();
-                if action == "closed" {
-                    if !pr.merged {
+        for event in events {
+            match event {
+                EventPayload::PullRequest(p) => {
+                    let pr = &p.pull_request;
+                    let entry = res.entry(pr.id).or_insert(Entry {
+                        r#type: String::from("PR"),
+                        title: pr.title.clone(),
+                        url: pr.html_url.clone(),
+                        actions: Vec::new(),
+                    });
+
+                    let mut action = p.action.clone();
+                    if action == "closed" {
+                        if !pr.merged {
+                            continue;
+                        }
+                        action = String::from("merged");
+                    }
+                    if !entry.actions.contains(&action) {
+                        entry.actions.push(action);
+                    }
+                }
+                EventPayload::Review(p) => {
+                    if p.action != "submitted" {
                         continue;
                     }
-                    action = String::from("merged");
-                }
-                if !entry.actions.contains(&action) {
-                    entry.actions.push(action);
-                }
-            }
-            EventPayload::Issue(p) => {
-                if p.action != "created" {
-                    continue;
-                }
 
-                let issue = &p.issue;
-                let entry = res.entry(issue.id).or_insert(Entry {
-                    r#type: String::from("Issue"),
-                    title: issue.title.clone(),
-                    url: issue.html_url.clone(),
-                    actions: Vec::new(),
-                });
+                    let pr = &p.pull_request;
+                    if pr.user.login == self.login {
+                        continue;
+                    }
 
-                if !entry.actions.contains(&p.action) {
-                    entry.actions.push(p.action.clone());
+                    res.entry(pr.id).or_insert(Entry {
+                        r#type: String::from("PR"),
+                        title: pr.title.clone(),
+                        url: pr.html_url.clone(),
+                        actions: vec![String::from("reviewed")],
+                    });
                 }
-            }
-            EventPayload::Review(p) => {
-                if p.action != "submitted" {
-                    continue;
-                }
+                EventPayload::ReviewComment(p) => {
+                    if p.action != "created" {
+                        continue;
+                    }
 
-                let pr = &p.pull_request;
-                if pr.user.login == login {
-                    continue;
-                }
+                    let pr = &p.pull_request;
+                    if pr.user.login == self.login {
+                        continue;
+                    }
 
-                res.entry(pr.id).or_insert(Entry {
-                    r#type: String::from("PR"),
-                    title: pr.title.clone(),
-                    url: pr.html_url.clone(),
-                    actions: vec![String::from("reviewed")],
-                });
-            }
-            EventPayload::ReviewComment(p) => {
-                if p.action != "created" {
-                    continue;
+                    res.entry(pr.id).or_insert(Entry {
+                        r#type: String::from("PR"),
+                        title: pr.title.clone(),
+                        url: pr.html_url.clone(),
+                        actions: vec![String::from("reviewed")],
+                    });
                 }
+                EventPayload::Issue(p) => {
+                    if p.action != "created" {
+                        continue;
+                    }
 
-                let pr = &p.pull_request;
-                if pr.user.login == login {
-                    continue;
+                    let issue = &p.issue;
+                    let entry = res.entry(issue.id).or_insert(Entry {
+                        r#type: String::from("Issue"),
+                        title: issue.title.clone(),
+                        url: issue.html_url.clone(),
+                        actions: Vec::new(),
+                    });
+
+                    if !entry.actions.contains(&p.action) {
+                        entry.actions.push(p.action.clone());
+                    }
                 }
+                EventPayload::IssueComment(p) => {
+                    if !self.issue_comments || p.action != "created" {
+                        continue;
+                    }
 
-                res.entry(pr.id).or_insert(Entry {
-                    r#type: String::from("PR"),
-                    title: pr.title.clone(),
-                    url: pr.html_url.clone(),
-                    actions: vec![String::from("reviewed")],
-                });
+                    let issue = &p.issue;
+                    if res.contains_key(&issue.id) {
+                        continue;
+                    }
+                    res.insert(
+                        issue.id,
+                        Entry {
+                            r#type: String::from("Issue"),
+                            title: issue.title.clone(),
+                            url: issue.html_url.clone(),
+                            actions: vec![String::from("commented")],
+                        },
+                    );
+                }
             }
         }
-    }
 
-    res.values().cloned().collect()
+        res.values().cloned().collect()
+    }
 }
 
 // Cli
@@ -275,6 +312,10 @@ struct Opt {
     )]
     /// Valid values: yesterday, friday, today, yyyy-mm-dd
     since: DateTime<Utc>,
+
+    #[structopt(long = "issue-comments")]
+    /// Add issues with comments into a report
+    issue_comments: bool,
 }
 
 fn parse_since(v: &str) -> Result<DateTime<Utc>, &str> {
@@ -318,18 +359,23 @@ fn run() -> Result<(), Box<dyn Error>> {
         .json()
         .map_err(|e| format!("Can not parse Github response: {}", e))?;
 
-    let events_filtered = events
+    let events_filtered: Vec<&Event> = events
         .iter()
         .filter(|x| x.created_at > opt.since)
         .filter(|x| x.payload.is_some())
         .collect();
 
-    for (repo, events) in group_by_repos(events_filtered) {
-        println!("- {}:", repo);
+    let c = Convertor {
+        login: opt.user,
+        issue_comments: opt.issue_comments,
+    };
+
+    for (repo, events) in group_by_repos(&events_filtered) {
+        println!("* {}:", repo);
         let payloads: Vec<&EventPayload> =
             events.iter().map(|x| x.payload.as_ref().unwrap()).collect();
-        for e in convert(&payloads, &opt.user) {
-            println!("  * {}", e)
+        for e in c.convert(&payloads) {
+            println!("  - {}", e)
         }
     }
 
