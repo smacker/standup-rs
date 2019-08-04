@@ -15,7 +15,7 @@ use std::io::{stderr, Write};
 use std::process;
 
 use chrono::prelude::*;
-use reqwest::header::AUTHORIZATION;
+use reqwest::header::{HeaderMap, AUTHORIZATION, LINK};
 use serde::Deserialize;
 use structopt::StructOpt;
 use time::Duration;
@@ -127,12 +127,12 @@ impl fmt::Display for Entry {
 
 // Transformations
 
-fn group_by_repos<'a>(events: &[&'a Event]) -> HashMap<&'a String, Vec<&'a Event>> {
+fn group_by_repos<'a>(events: &[Event]) -> HashMap<&String, Vec<&Event>> {
     let mut res = HashMap::new();
 
     for e in events {
         let v = res.entry(&e.repo.name).or_insert_with(Vec::new);
-        v.push(*e);
+        v.push(e);
     }
 
     res
@@ -311,37 +311,130 @@ fn parse_until(v: &str) -> Result<DateTime<Utc>, &str> {
     Ok(DateTime::from(d.and_hms(0, 0, 0)))
 }
 
+// github api
+
+// typed link header isn't implemented in headers 0.2.1
+struct LinkHeader {
+    next: Option<String>,
+}
+
+impl LinkHeader {
+    fn from_str(v: &str) -> LinkHeader {
+        for item in v.split(',') {
+            let parts: Vec<&str> = item.splitn(2, ';').map(|x| x.trim()).collect();
+            if parts[1] != "rel=\"next\"" {
+                continue;
+            }
+            let a: &str = &parts[0][1..parts[0].len() - 1];
+            return LinkHeader {
+                next: Some(String::from(a)),
+            };
+        }
+        LinkHeader { next: None }
+    }
+}
+
+struct GithubEvents {
+    user: String,
+    token: String,
+    since: DateTime<Utc>,
+    until: Option<DateTime<Utc>>,
+}
+
+impl GithubEvents {
+    fn get(&self) -> Result<Vec<Event>, String> {
+        let mut events = Vec::new();
+        let mut stop = false;
+        let mut page: u8 = 1;
+        // call github until event with created_at <= since is found
+        // or no more events available
+        loop {
+            let (page_events, has_next_page) = self.page_request(page)?;
+            if !has_next_page && page_events.len() > 0 {
+                let last_event = &page_events[page_events.len() - 1];
+                if last_event.created_at > self.since {
+                    println!(
+                        "WARNING: Events since requested date are unavailable. Last event date: {}",
+                        last_event.created_at,
+                    );
+                }
+            }
+
+            let events_iter = page_events
+                .into_iter()
+                .filter(|x| match x.created_at >= self.since {
+                    true => true,
+                    false => {
+                        stop = true;
+                        false
+                    }
+                })
+                .filter(|x| self.until.map_or(true, |d| x.created_at < d))
+                .filter(|x| x.payload.is_some());
+
+            events.extend(events_iter);
+
+            if stop || !has_next_page {
+                break;
+            }
+
+            page += 1;
+        }
+
+        Ok(events)
+    }
+
+    fn page_request(&self, page: u8) -> Result<(Vec<Event>, bool), String> {
+        // documentation says per_page isn't supported but it is :-D
+        let mut resp = reqwest::Client::new()
+            .get(&format!(
+                "https://api.github.com/users/{}/events?page={}&per_page=100",
+                self.user, page,
+            ))
+            .header(AUTHORIZATION, format!("token {}", self.token))
+            .send()
+            .map_err(|e| format!("Request to Github failed: {}", e))?
+            .error_for_status()
+            .map_err(|e| format!("Incorrect response status: {}", e))?;
+
+        let events: Vec<Event> = resp
+            .json()
+            .map_err(|e| format!("Can not parse Github response: {}", e))?;
+
+        Ok((events, Self::has_next_page(resp.headers())))
+    }
+
+    fn has_next_page(headers: &HeaderMap) -> bool {
+        let link = match headers.get(LINK) {
+            Some(link) => link,
+            None => return false,
+        };
+        let link_str = match link.to_str() {
+            Ok(link_str) => link_str,
+            Err(_) => return false,
+        };
+        let next_url = LinkHeader::from_str(link_str).next;
+        next_url.is_some()
+    }
+}
+
 fn run() -> Result<(), Box<dyn Error>> {
     let opt = Opt::from_args();
 
-    // documentation says per_page isn't supported but it is :-D
-    // TODO add pagination
-    let events: Vec<Event> = reqwest::Client::new()
-        .get(&format!(
-            "https://api.github.com/users/{}/events?per_page=100",
-            opt.user
-        ))
-        .header(AUTHORIZATION, format!("token {}", opt.token))
-        .send()
-        .map_err(|e| format!("Request to Github failed: {}", e))?
-        .error_for_status()
-        .map_err(|e| format!("Incorrect response status: {}", e))?
-        .json()
-        .map_err(|e| format!("Can not parse Github response: {}", e))?;
-
-    let events_filtered: Vec<&Event> = events
-        .iter()
-        .filter(|x| x.created_at >= opt.since)
-        .filter(|x| opt.until.map_or(true, |d| x.created_at < d))
-        .filter(|x| x.payload.is_some())
-        .collect();
+    let gh = GithubEvents {
+        user: opt.user.clone(),
+        token: opt.token.clone(),
+        since: opt.since,
+        until: opt.until,
+    };
+    let events = gh.get()?;
 
     let c = Convertor {
         login: opt.user,
         issue_comments: opt.issue_comments,
     };
 
-    for (repo, events) in group_by_repos(&events_filtered) {
+    for (repo, events) in group_by_repos(&events) {
         println!("* {}:", repo);
         let payloads: Vec<&EventPayload> =
             events.iter().map(|x| x.payload.as_ref().unwrap()).collect();
