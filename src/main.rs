@@ -127,7 +127,7 @@ impl fmt::Display for Entry {
 
 // Transformations
 
-fn group_by_repos<'a>(events: &[Event]) -> HashMap<&String, Vec<&Event>> {
+fn group_by_repos(events: &[Event]) -> HashMap<&String, Vec<&Event>> {
     let mut res = HashMap::new();
 
     for e in events {
@@ -350,7 +350,7 @@ impl GithubEvents {
         // or no more events available
         loop {
             let (page_events, has_next_page) = self.page_request(page)?;
-            if !has_next_page && page_events.len() > 0 {
+            if !has_next_page && !page_events.is_empty() {
                 let last_event = &page_events[page_events.len() - 1];
                 if last_event.created_at > self.since {
                     println!(
@@ -362,9 +362,10 @@ impl GithubEvents {
 
             let events_iter = page_events
                 .into_iter()
-                .filter(|x| match x.created_at >= self.since {
-                    true => true,
-                    false => {
+                .filter(|x| {
+                    if x.created_at >= self.since {
+                        true
+                    } else {
                         stop = true;
                         false
                     }
@@ -436,8 +437,11 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     for (repo, events) in group_by_repos(&events) {
         println!("* {}:", repo);
-        let payloads: Vec<&EventPayload> =
-            events.iter().map(|x| x.payload.as_ref().unwrap()).collect();
+        let payloads: Vec<&EventPayload> = events
+            .into_iter()
+            .map(|x| x.payload.as_ref())
+            .flatten()
+            .collect();
         for e in c.convert(&payloads) {
             println!("  - {}", e)
         }
