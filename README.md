@@ -1,8 +1,23 @@
 # Standup-rs
 
-```
-Generate a report for morning standup using Github.
+Generate a report for morning standup using Github events.
 
+## Features
+
+- Supported events:
+    - PRs: opened, merged, reviewed
+    - Issues: opened, commented (optional, disable by default)
+- Shortcuts for --since flag
+- Copy-paste-able output for Slack
+- Private repos are covered
+
+## Install
+
+Go to [releases page](https://github.com/smacker/standup-rs/releases) and download a binary for your platform.
+
+## Usage
+
+```
 USAGE:
     standup_rs [FLAGS] [OPTIONS] --token <token> --user <user>
 
@@ -18,7 +33,7 @@ OPTIONS:
     -l, --user <user>      Github user login [env: STANDUP_LOGIN=]
 ```
 
-### Example output
+## Example output
 
 ```
 $ ./standup_rs -s today --issue-comments
