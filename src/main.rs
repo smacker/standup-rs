@@ -6,6 +6,7 @@ use chrono::prelude::*;
 use structopt::StructOpt;
 use time::Duration;
 
+mod gcalendar;
 mod github;
 mod report;
 
@@ -16,13 +17,13 @@ mod report;
     about = "Generate a report for morning standup using Github."
 )]
 struct Opt {
-    #[structopt(short = "l", long, env = "STANDUP_LOGIN", empty_values = false)]
+    #[structopt(long, env = "STANDUP_LOGIN", empty_values = false)]
     /// Github user login
-    user: String,
+    github_user: String,
 
-    #[structopt(short = "t", long, env = "STANDUP_GITHUB_TOKEN", empty_values = false)]
+    #[structopt(long, env = "STANDUP_GITHUB_TOKEN", empty_values = false)]
     /// Personal Github token
-    token: String,
+    github_token: String,
 
     #[structopt(
         short = "s",
@@ -40,6 +41,19 @@ struct Opt {
     #[structopt(long = "issue-comments")]
     /// Add issues with comments into a report
     issue_comments: bool,
+
+    #[structopt(long, env = "STANDUP_CALENDAR_CLIENT_ID", default_value = "")]
+    // Google Calendar client_id
+    calendar_client_id: String,
+
+    // FIXME validate that both id&secret are presented always
+    #[structopt(long, env = "STANDUP_CALENDAR_CLIENT_SECRET", default_value = "")]
+    // Google Calendar client_secret
+    calendar_client_secret: String,
+
+    #[structopt(long, env = "STANDUP_CALENDAR_ID", default_value = "")]
+    /// Google Calendar ID
+    calendar_id: String,
 }
 
 fn parse_date(v: &str) -> Result<Date<Local>, &str> {
@@ -77,9 +91,40 @@ fn parse_until(v: &str) -> Result<DateTime<Utc>, &str> {
 fn run() -> Result<(), Box<dyn Error>> {
     let opt = Opt::from_args();
 
+    // FIXME google calendar stuff must be optional
+    let mut c = gcalendar::Calendar::new(&opt.calendar_client_id, &opt.calendar_client_secret);
+
+    if !c.authorized() {
+        println!("Please visit the url to authorize the application");
+        println!("{}", c.authorize_url());
+
+        c.listen_for_code()?;
+    }
+
+    if opt.calendar_client_id != "" && opt.calendar_id == "" {
+        let calendars = c.list()?;
+        println!("Google Calendar token found but calendar-id is unset");
+        println!("Available calendars:");
+        for cal in calendars {
+            println!("[{}]: {}", cal.id, cal.summary)
+        }
+        println!(
+            "Set calendar id into STANDUP_CALENDAR_ID env var or pass it as --calendar-id flag"
+        );
+
+        return Ok(());
+    }
+
+    if opt.calendar_id != "" {
+        let events = c.events(opt.since, opt.until, opt.calendar_id)?;
+        for e in events {
+            println!("* {}", e);
+        }
+    }
+
     let grouped_events = github::fetch(
-        &opt.user,
-        &opt.token,
+        &opt.github_user,
+        &opt.github_token,
         opt.since,
         opt.until,
         opt.issue_comments,
