@@ -14,17 +14,9 @@ mod report;
 #[derive(StructOpt)]
 #[structopt(
     name = "standup-rs",
-    about = "Generate a report for morning standup using Github."
+    about = "Generate a report for morning standup using GitHub and Google Calendar."
 )]
 struct Opt {
-    #[structopt(long, env = "STANDUP_LOGIN", empty_values = false)]
-    /// Github user login
-    github_user: String,
-
-    #[structopt(long, env = "STANDUP_GITHUB_TOKEN", empty_values = false)]
-    /// Personal Github token
-    github_token: String,
-
     #[structopt(
         short = "s",
         long,
@@ -42,16 +34,36 @@ struct Opt {
     /// Add issues with comments into a report
     issue_comments: bool,
 
-    #[structopt(long, env = "STANDUP_CALENDAR_CLIENT_ID", default_value = "")]
+    #[structopt(long = "github-user", env = "STANDUP_LOGIN", empty_values = false)]
+    /// Github user login
+    github_user: String,
+
+    #[structopt(
+        long = "github-token",
+        env = "STANDUP_GITHUB_TOKEN",
+        empty_values = false
+    )]
+    /// Personal Github token
+    github_token: String,
+
+    #[structopt(
+        long = "calendar-client-id",
+        env = "STANDUP_CALENDAR_CLIENT_ID",
+        default_value = ""
+    )]
     // Google Calendar client_id
     calendar_client_id: String,
 
     // FIXME validate that both id&secret are presented always
-    #[structopt(long, env = "STANDUP_CALENDAR_CLIENT_SECRET", default_value = "")]
+    #[structopt(
+        long = "calendar-client-secret",
+        env = "STANDUP_CALENDAR_CLIENT_SECRET",
+        default_value = ""
+    )]
     // Google Calendar client_secret
     calendar_client_secret: String,
 
-    #[structopt(long, env = "STANDUP_CALENDAR_ID", default_value = "")]
+    #[structopt(long = "calendar-id", env = "STANDUP_CALENDAR_ID", default_value = "")]
     /// Google Calendar ID
     calendar_id: String,
 }
