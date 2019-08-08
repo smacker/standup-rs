@@ -103,10 +103,9 @@ impl TokenStorage {
         self.experies_at = Utc::now()
             + Duration::from_std(token.expires_in().expect("token must have expires_in")).unwrap();
 
-        match token.refresh_token() {
-            Some(rt) => self.refresh_token = String::from(rt.secret()),
-            None => (),
-        };
+        if let Some(rt) = token.refresh_token() {
+            self.refresh_token = String::from(rt.secret());
+        }
 
         Ok(())
     }
@@ -161,7 +160,7 @@ impl Calendar {
     }
 
     pub fn authorized(&self) -> bool {
-        return self.storage.is_some();
+        self.storage.is_some()
     }
 
     pub fn authorize_url(&self) -> String {
@@ -300,7 +299,7 @@ impl Calendar {
                 "https://www.googleapis.com/calendar/v3/calendars/{}/events?singleEvents=true&timeMin={}&timeMax={}&access_token={}",
                 calendar_id,
                 since.to_rfc3339_opts(SecondsFormat::Secs, true),
-                until.unwrap_or(Utc::now()).to_rfc3339_opts(SecondsFormat::Secs, true),
+                until.unwrap_or_else(Utc::now).to_rfc3339_opts(SecondsFormat::Secs, true),
                 self.access_token()?,
             ))
             .send()
