@@ -230,7 +230,7 @@ impl Convertor<'_> {
                     let entry = res.entry(pr.id).or_insert(Entry {
                         r#type: String::from("PR"),
                         title: pr.title.clone(),
-                        url: pr.html_url.clone(),
+                        url: Some(pr.html_url.clone()),
                         actions: Vec::new(),
                     });
 
@@ -258,7 +258,7 @@ impl Convertor<'_> {
                     res.entry(pr.id).or_insert(Entry {
                         r#type: String::from("PR"),
                         title: pr.title.clone(),
-                        url: pr.html_url.clone(),
+                        url: Some(pr.html_url.clone()),
                         actions: vec![String::from("reviewed")],
                     });
                 }
@@ -275,7 +275,7 @@ impl Convertor<'_> {
                     res.entry(pr.id).or_insert(Entry {
                         r#type: String::from("PR"),
                         title: pr.title.clone(),
-                        url: pr.html_url.clone(),
+                        url: Some(pr.html_url.clone()),
                         actions: vec![String::from("reviewed")],
                     });
                 }
@@ -288,7 +288,7 @@ impl Convertor<'_> {
                     let entry = res.entry(issue.id).or_insert(Entry {
                         r#type: String::from("Issue"),
                         title: issue.title.clone(),
-                        url: issue.html_url.clone(),
+                        url: Some(issue.html_url.clone()),
                         actions: Vec::new(),
                     });
 
@@ -310,7 +310,7 @@ impl Convertor<'_> {
                         Entry {
                             r#type: String::from("Issue"),
                             title: issue.title.clone(),
-                            url: issue.html_url.clone(),
+                            url: Some(issue.html_url.clone()),
                             actions: vec![String::from("commented")],
                         },
                     );
