@@ -1,15 +1,17 @@
 # Standup-rs
 
-Generate a report for morning standup using Github events.
+Generate a report for morning standup using GitHub and Google Calendar APIs.
 
 ## Features
 
-- Supported events:
+- Supported GitHub events:
     - PRs: opened, merged, reviewed
     - Issues: opened, commented (optional, disable by default)
+- Support for accepted events in Google Calendar (optional)
 - Shortcuts for --since flag
 - Copy-paste-able output for Slack
-- Private repos are covered
+- Private repos are analyzed as well
+- Simple step-by-step setup
 
 ## Install
 
@@ -19,7 +21,7 @@ Go to [releases page](https://github.com/smacker/standup-rs/releases) and downlo
 
 ```
 USAGE:
-    standup_rs [FLAGS] [OPTIONS] --token <token> --user <user>
+    standup_rs [FLAGS] [OPTIONS]
 
 FLAGS:
     -h, --help              Prints help information
@@ -28,27 +30,24 @@ FLAGS:
 
 OPTIONS:
     -s, --since <since>    Valid values: yesterday, friday, today, yyyy-mm-dd [default: yesterday]
-    -t, --token <token>    Personal Github token [env: STANDUP_GITHUB_TOKEN=]
     -u, --until <until>    Valid values: today, yyyy-mm-dd
-    -l, --user <user>      Github user login [env: STANDUP_LOGIN=]
 ```
+
+On the first run it will guide you how to obtain necessary tokens and save configuration into `~/.standup`.
 
 ## Example output
 
 ```
-$ ./standup_rs -s today --issue-comments
-* src-d/sourced-ui:
-  - [Issue] (commented) Improve contributors charts https://github.com/src-d/sourced-ui/issues/194
-  - [PR] (merged) Cherry-pick: allow user re-order top-level tabs https://github.com/src-d/sourced-ui/pull/234
-  - [PR] (opened) Fix formatter for metadata progress chart https://github.com/src-d/sourced-ui/pull/236
-  - [PR] (opened) Improve contributors charts https://github.com/src-d/sourced-ui/pull/237
-* src-d/sourced-ce:
-  - [PR] (opened) Exclude forks by default https://github.com/src-d/sourced-ce/pull/185
-  - [PR] (reviewed) Separates local and orgs workdirs https://github.com/src-d/sourced-ce/pull/183
-  - [PR] (merged) Update .env file on init always https://github.com/src-d/sourced-ce/pull/181
-  - [PR] (reviewed) Adds monitoring of services when opening ui to eventually fail fast https://github.com/src-d/sourced-ce/pull/186
-  - [Issue] (commented) Separates local and orgs workdirs https://github.com/src-d/sourced-ce/pull/183
+$ ./standup_rs --since "2019-08-06" --until "2019-08-07"
+* [Meeting] Apps Team Focus
+* [Meeting] Engineering Demo
 * src-d/ghsync:
-  - [Issue] (commented) Add no-forks option https://github.com/src-d/ghsync/pull/60
-  - [PR] (merged) Add no-forks option https://github.com/src-d/ghsync/pull/60
+  - [PR] (opened) Add tests for RateLimitTransport https://github.com/src-d/ghsync/pull/61
+* src-d/sourced-ce:
+  - [PR] (merged) Limit container resources https://github.com/src-d/sourced-ce/pull/182
+  - [PR] (merged) Fix workdirs sub-command without active workdir https://github.com/src-d/sourced-ce/pull/190
+  - [PR] (opened) Disallow forks flag switch https://github.com/src-d/sourced-ce/pull/196
+  - [PR] (merged, opened) Rename workdir.WorkdirType to workdir.Type https://github.com/src-d/sourced-ce/pull/193
+* src-d/sourced-ui:
+  - [PR] (merged) Improve contributors charts https://github.com/src-d/sourced-ui/pull/237
 ```
