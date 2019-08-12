@@ -87,9 +87,8 @@ impl Calendar<'_> {
         String::from(url.as_str())
     }
 
-    // the server would panic in most of the incorrect cases
-    // not sure if I really need to fix it
-    pub fn listen_for_code(&self) -> Result<GoogleToken, String> {
+    // the server would panic if anything goes wrong, not sure if I really need to fix it
+    pub fn listen_for_code(&self) -> GoogleToken {
         let listener = TcpListener::bind("127.0.0.1:7890").expect("can not open 7890 port");
         for stream in listener.incoming() {
             match stream {
@@ -124,23 +123,22 @@ impl Calendar<'_> {
                         .client
                         .exchange_code(code)
                         .request(http_client)
-                        .map_err(|e| format!("Can't get access token: {}", e))?;
+                        .expect("can't get access token");
 
-                    return Ok(Self::config_from_token(token)?);
+                    return Self::config_from_token(token);
                 }
                 // ignore non-ok connections
                 _ => continue,
             }
         }
 
-        Err("server stopped listening for connections".to_string())
+        panic!("server stopped listening for connections");
     }
 
     // FIXME figure out how to use trait here instead of the type
-    // FIXME don't panic
     fn config_from_token(
         token: &StandardTokenResponse<EmptyExtraTokenFields, BasicTokenType>,
-    ) -> Result<GoogleToken, String> {
+    ) -> GoogleToken {
         let access_token = String::from(token.access_token().secret());
         let refresh_token = String::from(
             token
@@ -151,11 +149,11 @@ impl Calendar<'_> {
         let experies_at = Utc::now()
             + Duration::from_std(token.expires_in().expect("token must have expires_in")).unwrap();
 
-        Ok(GoogleToken {
+        GoogleToken {
             access_token,
             refresh_token,
             experies_at,
-        })
+        }
     }
 
     fn access_token(&self) -> Result<String, String> {

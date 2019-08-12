@@ -159,7 +159,7 @@ fn wizard() -> Result<Config, String> {
         let c = gcalendar::Calendar::new(&cfg);
         println!("Please visit the url to authorize the application");
         println!("{}", c.authorize_url());
-        cfg.google_token = Some(c.listen_for_code()?);
+        cfg.google_token = Some(c.listen_for_code());
 
         let c = gcalendar::Calendar::new(&cfg);
         let calendars = c.list()?;
