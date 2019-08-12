@@ -5,9 +5,7 @@ use reqwest::header::{HeaderMap, AUTHORIZATION, LINK};
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[path = "report.rs"]
-mod report;
-use report::*;
+use crate::report::*;
 
 // Github response structs
 
