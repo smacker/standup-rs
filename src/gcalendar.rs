@@ -3,12 +3,11 @@ use std::net::TcpListener;
 
 use chrono::prelude::*;
 // oauth2 v3 crate api is awful but v1 doesn't handle errors from the server properly
-use oauth2::basic::{BasicClient, BasicTokenType};
+use oauth2::basic::BasicClient;
 use oauth2::reqwest::http_client;
-use oauth2::TokenResponse;
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EmptyExtraTokenFields,
-    RedirectUrl, RefreshToken, ResponseType, Scope, StandardTokenResponse, TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, ExtraTokenFields, RedirectUrl,
+    RefreshToken, ResponseType, Scope, StandardTokenResponse, TokenResponse, TokenType, TokenUrl,
 };
 use serde::Deserialize;
 use time::Duration;
@@ -124,7 +123,6 @@ impl Calendar<'_> {
                         .exchange_code(code)
                         .request(http_client)
                         .expect("can't get access token");
-
                     return Self::config_from_token(token);
                 }
                 // ignore non-ok connections
@@ -135,10 +133,12 @@ impl Calendar<'_> {
         panic!("server stopped listening for connections");
     }
 
-    // FIXME figure out how to use trait here instead of the type
-    fn config_from_token(
-        token: &StandardTokenResponse<EmptyExtraTokenFields, BasicTokenType>,
-    ) -> GoogleToken {
+    // FIXME is it possible to use TokenResponse instead of StandardTokenResponse here?
+    fn config_from_token<EF, TT>(token: &StandardTokenResponse<EF, TT>) -> GoogleToken
+    where
+        EF: ExtraTokenFields,
+        TT: TokenType,
+    {
         let access_token = String::from(token.access_token().secret());
         let refresh_token = String::from(
             token
