@@ -279,7 +279,7 @@ impl Convertor<'_> {
                     });
                 }
                 EventPayload::Issue(p) => {
-                    if p.action != "created" {
+                    if p.action != "opened" {
                         continue;
                     }
 
