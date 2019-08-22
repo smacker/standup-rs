@@ -40,6 +40,7 @@ struct Issue {
     id: u64,
     html_url: String,
     title: String,
+    user: User,
 }
 
 #[derive(Deserialize)]
@@ -295,12 +296,34 @@ impl Convertor<'_> {
                     }
                 }
                 EventPayload::IssueComment(p) => {
-                    if !self.issue_comments || p.action != "created" {
+                    if p.action != "created" {
                         continue;
                     }
 
                     let issue = &p.issue;
-                    if res.contains_key(&issue.id) {
+                    // IssueComment returned for both Issues and Pull Requests
+                    // in case of PR issue has extra field `pull_request`
+                    // which is an object with link, but it's easier to check html_url
+                    let entity_type = issue
+                        .html_url
+                        .split('/')
+                        .nth(5)
+                        .expect("url must be parsable");
+                    if entity_type == "pull" {
+                        if issue.user.login == self.login {
+                            continue;
+                        }
+
+                        res.entry(issue.id).or_insert(Entry {
+                            r#type: String::from("PR"),
+                            title: issue.title.clone(),
+                            url: Some(issue.html_url.clone()),
+                            actions: vec![String::from("reviewed")],
+                        });
+                        continue;
+                    }
+
+                    if !self.issue_comments || res.contains_key(&issue.id) {
                         continue;
                     }
                     res.insert(
