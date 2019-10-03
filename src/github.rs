@@ -371,8 +371,11 @@ pub fn fetch(
             .map(|x| x.payload.as_ref())
             .flatten()
             .collect();
+        let events = c.convert(&payloads);
 
-        result.insert(repo.clone(), c.convert(&payloads));
+        if !events.is_empty() {
+            result.insert(repo.clone(), events);
+        }
     }
 
     Ok(result)
