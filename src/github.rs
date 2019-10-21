@@ -234,10 +234,7 @@ impl Convertor<'_> {
                     });
 
                     let mut action = p.action.clone();
-                    if action == "closed" {
-                        if !pr.merged {
-                            continue;
-                        }
+                    if action == "closed" && pr.merged {
                         action = if self.login != pr.user.login {
                             String::from("reviewed")
                         } else {
