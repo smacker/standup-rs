@@ -238,7 +238,11 @@ impl Convertor<'_> {
                         if !pr.merged {
                             continue;
                         }
-                        action = String::from("merged");
+                        action = if self.login != pr.user.login {
+                            String::from("reviewed")
+                        } else {
+                            String::from("merged")
+                        }
                     }
                     if !entry.actions.contains(&action) {
                         entry.actions.push(action);
