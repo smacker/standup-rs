@@ -21,7 +21,7 @@ struct User {
 
 #[derive(Deserialize)]
 struct PullRequest {
-    id: u64,
+    number: u64,
     html_url: String,
     title: String,
     #[serde(default)]
@@ -37,7 +37,7 @@ struct PullRequestPayload {
 
 #[derive(Deserialize)]
 struct Issue {
-    id: u64,
+    number: u64,
     html_url: String,
     title: String,
     user: User,
@@ -226,7 +226,7 @@ impl Convertor<'_> {
             match event {
                 EventPayload::PullRequest(p) => {
                     let pr = &p.pull_request;
-                    let entry = res.entry(pr.id).or_insert(Entry {
+                    let entry = res.entry(pr.number).or_insert(Entry {
                         r#type: String::from("PR"),
                         title: pr.title.clone(),
                         url: Some(pr.html_url.clone()),
@@ -254,7 +254,7 @@ impl Convertor<'_> {
                         continue;
                     }
 
-                    res.entry(pr.id).or_insert(Entry {
+                    res.entry(pr.number).or_insert(Entry {
                         r#type: String::from("PR"),
                         title: pr.title.clone(),
                         url: Some(pr.html_url.clone()),
@@ -271,7 +271,7 @@ impl Convertor<'_> {
                         continue;
                     }
 
-                    res.entry(pr.id).or_insert(Entry {
+                    res.entry(pr.number).or_insert(Entry {
                         r#type: String::from("PR"),
                         title: pr.title.clone(),
                         url: Some(pr.html_url.clone()),
@@ -284,7 +284,7 @@ impl Convertor<'_> {
                     }
 
                     let issue = &p.issue;
-                    let entry = res.entry(issue.id).or_insert(Entry {
+                    let entry = res.entry(issue.number).or_insert(Entry {
                         r#type: String::from("Issue"),
                         title: issue.title.clone(),
                         url: Some(issue.html_url.clone()),
@@ -314,7 +314,7 @@ impl Convertor<'_> {
                             continue;
                         }
 
-                        res.entry(issue.id).or_insert(Entry {
+                        res.entry(issue.number).or_insert(Entry {
                             r#type: String::from("PR"),
                             title: issue.title.clone(),
                             url: Some(issue.html_url.clone()),
@@ -323,11 +323,11 @@ impl Convertor<'_> {
                         continue;
                     }
 
-                    if !self.issue_comments || res.contains_key(&issue.id) {
+                    if !self.issue_comments || res.contains_key(&issue.number) {
                         continue;
                     }
                     res.insert(
-                        issue.id,
+                        issue.number,
                         Entry {
                             r#type: String::from("Issue"),
                             title: issue.title.clone(),
@@ -362,7 +362,7 @@ pub fn fetch(
         issue_comments,
     };
 
-    let events = gh.get()?;
+    let events: Vec<Event> = gh.get()?;
     let mut result = HashMap::new();
 
     for (repo, events) in group_by_repos(&events) {
@@ -371,6 +371,7 @@ pub fn fetch(
             .map(|x| x.payload.as_ref())
             .flatten()
             .collect();
+
         let events = c.convert(&payloads);
 
         if !events.is_empty() {
