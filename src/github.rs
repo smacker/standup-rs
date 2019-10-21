@@ -3,7 +3,7 @@
 use chrono::prelude::*;
 use reqwest::header::{HeaderMap, AUTHORIZATION, LINK};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::report::*;
 
@@ -11,6 +11,12 @@ use crate::report::*;
 
 #[derive(Deserialize)]
 struct Repo {
+    full_name: String,
+    source: Option<Box<Repo>>,
+}
+
+#[derive(Deserialize)]
+struct EventRepo {
     name: String,
 }
 
@@ -68,6 +74,13 @@ struct IssueCommentPayload {
 }
 
 #[derive(Deserialize)]
+struct PushPayload {
+    r#ref: String,
+    #[serde(skip)]
+    pull_requests: Option<Vec<PullRequest>>,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "type", content = "payload")]
 enum EventPayload {
     #[serde(rename = "PullRequestEvent")]
@@ -80,11 +93,13 @@ enum EventPayload {
     Issue(IssuePayload),
     #[serde(rename = "IssueCommentEvent")]
     IssueComment(IssueCommentPayload),
+    #[serde(rename = "PushEvent")]
+    Push(PushPayload),
 }
 
 #[derive(Deserialize)]
 struct Event {
-    repo: Repo,
+    repo: EventRepo,
     #[serde(flatten)]
     payload: Option<EventPayload>,
     created_at: DateTime<Utc>,
@@ -113,27 +128,27 @@ impl LinkHeader {
     }
 }
 
-// github api
-
-struct GithubEvents<'a> {
+struct GithubApi<'a> {
     user: &'a str,
     token: &'a str,
-    since: DateTime<Utc>,
-    until: Option<DateTime<Utc>>,
 }
 
-impl GithubEvents<'_> {
-    fn get(&self) -> Result<Vec<Event>, String> {
+impl GithubApi<'_> {
+    fn events(
+        &self,
+        since: DateTime<Utc>,
+        until: Option<DateTime<Utc>>,
+    ) -> Result<Vec<Event>, String> {
         let mut events = Vec::new();
         let mut stop = false;
         let mut page: u8 = 1;
         // call github until event with created_at <= since is found
         // or no more events available
         loop {
-            let (page_events, has_next_page) = self.page_request(page)?;
+            let (page_events, has_next_page) = self.events_page_request(page)?;
             if !has_next_page && !page_events.is_empty() {
                 let last_event = &page_events[page_events.len() - 1];
-                if last_event.created_at > self.since {
+                if last_event.created_at > since {
                     println!(
                         "WARNING: Events since requested date are unavailable. Last event date: {}",
                         last_event.created_at,
@@ -144,14 +159,14 @@ impl GithubEvents<'_> {
             let events_iter = page_events
                 .into_iter()
                 .filter(|x| {
-                    if x.created_at >= self.since {
+                    if x.created_at >= since {
                         true
                     } else {
                         stop = true;
                         false
                     }
                 })
-                .filter(|x| self.until.map_or(true, |d| x.created_at < d))
+                .filter(|x| until.map_or(true, |d| x.created_at < d))
                 .filter(|x| x.payload.is_some());
 
             events.extend(events_iter);
@@ -166,18 +181,47 @@ impl GithubEvents<'_> {
         Ok(events)
     }
 
-    fn page_request(&self, page: u8) -> Result<(Vec<Event>, bool), String> {
-        // documentation says per_page isn't supported but it is :-D
-        let mut resp = reqwest::Client::new()
-            .get(&format!(
-                "https://api.github.com/users/{}/events?page={}&per_page=100",
-                self.user, page,
-            ))
+    fn get_repo(&self, repo: &str) -> Result<Repo, String> {
+        let mut resp = self.request(&format!("https://api.github.com/repos/{}", repo,))?;
+
+        let repo: Repo = resp
+            .json()
+            .map_err(|e| format!("Can not parse Github response: {}", e))?;
+
+        Ok(repo)
+    }
+
+    fn find_prs(&self, repo: &str, head: &str) -> Result<Vec<PullRequest>, String> {
+        let mut resp = self.request(&format!(
+            "https://api.github.com/repos/{}/pulls?state=all&head={}",
+            repo, head,
+        ))?;
+
+        let prs: Vec<PullRequest> = resp
+            .json()
+            .map_err(|e| format!("Can not parse Github response: {}", e))?;
+
+        Ok(prs)
+    }
+
+    fn request(&self, url: &str) -> Result<reqwest::Response, String> {
+        let resp = reqwest::Client::new()
+            .get(url)
             .header(AUTHORIZATION, format!("token {}", self.token))
             .send()
             .map_err(|e| format!("Request to Github failed: {}", e))?
             .error_for_status()
             .map_err(|e| format!("Incorrect response status: {}", e))?;
+
+        Ok(resp)
+    }
+
+    fn events_page_request(&self, page: u8) -> Result<(Vec<Event>, bool), String> {
+        // documentation says per_page isn't supported but it is :-D
+        let mut resp = self.request(&format!(
+            "https://api.github.com/users/{}/events?page={}&per_page=100",
+            self.user, page,
+        ))?;
 
         let events: Vec<Event> = resp
             .json()
@@ -213,135 +257,200 @@ fn group_by_repos(events: &[Event]) -> HashMap<&String, Vec<&Event>> {
     res
 }
 
-pub struct Convertor<'a> {
-    login: &'a str,
+fn convert(
+    login: &str,
     issue_comments: bool,
-}
+    events: &[&EventPayload],
+) -> Result<Vec<Entry>, String> {
+    let mut res = HashMap::new();
 
-impl Convertor<'_> {
-    fn convert(&self, events: &[&EventPayload]) -> Vec<Entry> {
-        let mut res = HashMap::new();
+    for event in events {
+        match event {
+            EventPayload::PullRequest(p) => {
+                let pr = &p.pull_request;
+                let entry = res.entry(pr.number).or_insert(Entry {
+                    r#type: String::from("PR"),
+                    title: pr.title.clone(),
+                    url: Some(pr.html_url.clone()),
+                    actions: Vec::new(),
+                });
 
-        for event in events {
-            match event {
-                EventPayload::PullRequest(p) => {
-                    let pr = &p.pull_request;
-                    let entry = res.entry(pr.number).or_insert(Entry {
-                        r#type: String::from("PR"),
-                        title: pr.title.clone(),
-                        url: Some(pr.html_url.clone()),
-                        actions: Vec::new(),
-                    });
-
-                    let mut action = p.action.clone();
-                    if action == "closed" && pr.merged {
-                        action = if self.login != pr.user.login {
-                            String::from("reviewed")
-                        } else {
-                            String::from("merged")
-                        }
-                    }
-                    if !entry.actions.contains(&action) {
-                        entry.actions.push(action);
+                let mut action = p.action.clone();
+                if action == "closed" && pr.merged {
+                    action = if login != pr.user.login {
+                        String::from("reviewed")
+                    } else {
+                        String::from("merged")
                     }
                 }
-                EventPayload::Review(p) => {
-                    if p.action != "submitted" {
+                // can be pushes before opening a PR, skip them
+                if action == "opened" {
+                    entry.actions.retain(|x| x != "pushed");
+                }
+                if !entry.actions.contains(&action) {
+                    entry.actions.push(action);
+                }
+            }
+            EventPayload::Review(p) => {
+                if p.action != "submitted" {
+                    continue;
+                }
+
+                let pr = &p.pull_request;
+                if pr.user.login == login {
+                    continue;
+                }
+
+                res.entry(pr.number).or_insert(Entry {
+                    r#type: String::from("PR"),
+                    title: pr.title.clone(),
+                    url: Some(pr.html_url.clone()),
+                    actions: vec![String::from("reviewed")],
+                });
+            }
+            EventPayload::ReviewComment(p) => {
+                if p.action != "created" {
+                    continue;
+                }
+
+                let pr = &p.pull_request;
+                if pr.user.login == login {
+                    continue;
+                }
+
+                res.entry(pr.number).or_insert(Entry {
+                    r#type: String::from("PR"),
+                    title: pr.title.clone(),
+                    url: Some(pr.html_url.clone()),
+                    actions: vec![String::from("reviewed")],
+                });
+            }
+            EventPayload::Issue(p) => {
+                if p.action != "opened" {
+                    continue;
+                }
+
+                let issue = &p.issue;
+                let entry = res.entry(issue.number).or_insert(Entry {
+                    r#type: String::from("Issue"),
+                    title: issue.title.clone(),
+                    url: Some(issue.html_url.clone()),
+                    actions: Vec::new(),
+                });
+
+                if !entry.actions.contains(&p.action) {
+                    entry.actions.push(p.action.clone());
+                }
+            }
+            EventPayload::IssueComment(p) => {
+                if p.action != "created" {
+                    continue;
+                }
+
+                let issue = &p.issue;
+                // IssueComment returned for both Issues and Pull Requests
+                // in case of PR issue has extra field `pull_request`
+                // which is an object with link, but it's easier to check html_url
+                let entity_type = issue
+                    .html_url
+                    .split('/')
+                    .nth(5)
+                    .expect("url must be parsable");
+                if entity_type == "pull" {
+                    if issue.user.login == login {
                         continue;
                     }
 
-                    let pr = &p.pull_request;
-                    if pr.user.login == self.login {
-                        continue;
-                    }
-
-                    res.entry(pr.number).or_insert(Entry {
+                    res.entry(issue.number).or_insert(Entry {
                         r#type: String::from("PR"),
-                        title: pr.title.clone(),
-                        url: Some(pr.html_url.clone()),
+                        title: issue.title.clone(),
+                        url: Some(issue.html_url.clone()),
                         actions: vec![String::from("reviewed")],
                     });
+                    continue;
                 }
-                EventPayload::ReviewComment(p) => {
-                    if p.action != "created" {
-                        continue;
-                    }
 
-                    let pr = &p.pull_request;
-                    if pr.user.login == self.login {
-                        continue;
-                    }
-
-                    res.entry(pr.number).or_insert(Entry {
-                        r#type: String::from("PR"),
-                        title: pr.title.clone(),
-                        url: Some(pr.html_url.clone()),
-                        actions: vec![String::from("reviewed")],
-                    });
+                if !issue_comments || res.contains_key(&issue.number) {
+                    continue;
                 }
-                EventPayload::Issue(p) => {
-                    if p.action != "opened" {
-                        continue;
-                    }
-
-                    let issue = &p.issue;
-                    let entry = res.entry(issue.number).or_insert(Entry {
+                res.insert(
+                    issue.number,
+                    Entry {
                         r#type: String::from("Issue"),
                         title: issue.title.clone(),
                         url: Some(issue.html_url.clone()),
-                        actions: Vec::new(),
-                    });
-
-                    if !entry.actions.contains(&p.action) {
-                        entry.actions.push(p.action.clone());
-                    }
-                }
-                EventPayload::IssueComment(p) => {
-                    if p.action != "created" {
-                        continue;
-                    }
-
-                    let issue = &p.issue;
-                    // IssueComment returned for both Issues and Pull Requests
-                    // in case of PR issue has extra field `pull_request`
-                    // which is an object with link, but it's easier to check html_url
-                    let entity_type = issue
-                        .html_url
-                        .split('/')
-                        .nth(5)
-                        .expect("url must be parsable");
-                    if entity_type == "pull" {
-                        if issue.user.login == self.login {
-                            continue;
-                        }
-
-                        res.entry(issue.number).or_insert(Entry {
+                        actions: vec![String::from("commented")],
+                    },
+                );
+            }
+            EventPayload::Push(p) => {
+                if let Some(prs) = &p.pull_requests {
+                    for pr in prs {
+                        // insert Entry only if this PR doesn't exist in the history yet
+                        // to avoid pushed actions for just opened PRs
+                        res.entry(pr.number).or_insert(Entry {
                             r#type: String::from("PR"),
-                            title: issue.title.clone(),
-                            url: Some(issue.html_url.clone()),
-                            actions: vec![String::from("reviewed")],
+                            title: pr.title.clone(),
+                            url: Some(pr.html_url.clone()),
+                            actions: vec![String::from("pushed")],
                         });
-                        continue;
                     }
-
-                    if !self.issue_comments || res.contains_key(&issue.number) {
-                        continue;
-                    }
-                    res.insert(
-                        issue.number,
-                        Entry {
-                            r#type: String::from("Issue"),
-                            title: issue.title.clone(),
-                            url: Some(issue.html_url.clone()),
-                            actions: vec![String::from("commented")],
-                        },
-                    );
                 }
             }
         }
-
-        res.values().cloned().collect()
     }
+
+    Ok(res.values().cloned().collect())
+}
+
+fn enhance_events(gh: &GithubApi, events: &mut Vec<Event>) -> Result<(), String> {
+    // try to find pull requests for push events
+    let mut repo_cache = HashMap::new();
+    let mut checked_refs = HashSet::new();
+    for e in events {
+        if let Some(EventPayload::Push(p)) = e.payload.as_mut() {
+            // even prs _can_ be opened from master, I don't do that
+            // this check allows to skip many pushes that happend because of the merge
+            if p.r#ref == "refs/heads/master" {
+                continue;
+            }
+
+            let repo_name = &e.repo.name;
+            if !checked_refs.insert(format!("{}_{}", repo_name, p.r#ref)) {
+                continue;
+            }
+            // events contain only repo name but we need source as well for forks
+            let repo = match repo_cache.get(repo_name) {
+                Some(r) => &r,
+                None => {
+                    let r = gh.get_repo(repo_name)?;
+                    repo_cache.insert(String::from(repo_name), r);
+                    // FIXME there must be better way to do it without violation of lifetime
+                    repo_cache.get(repo_name).unwrap()
+                }
+            };
+
+            let owner = &repo.full_name.split('/').nth(0).unwrap();
+            let head = format!("{}:{}", owner, p.r#ref);
+            // try to find PR in source repo if push was made to fork
+            let prs = if let Some(source) = &repo.source {
+                let prs = gh.find_prs(&source.full_name, &head)?;
+                // change source of the event to pr's repository
+                e.repo.name = source.full_name.clone();
+                prs
+            // for non-forks try to find in the repo itself
+            } else {
+                gh.find_prs(&repo.full_name, &head)?
+            };
+            // TODO: it is possible that PR can be make to a fork
+
+            if !prs.is_empty() {
+                p.pull_requests = Some(prs);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub fn fetch(
@@ -351,21 +460,15 @@ pub fn fetch(
     until: Option<DateTime<Utc>>,
     issue_comments: bool,
 ) -> Result<HashMap<String, Vec<Entry>>, String> {
-    let gh = GithubEvents {
-        user,
-        token,
-        since,
-        until,
-    };
+    let gh = GithubApi { user, token };
 
-    let c = Convertor {
-        login: user,
-        issue_comments,
-    };
+    let mut events: Vec<Event> = gh.events(since, until)?;
+    // enrich events with additional information
+    enhance_events(&gh, &mut events)?;
+    // converting requires events to be sorted by date
+    events.sort_by_key(|x| x.created_at);
 
-    let events: Vec<Event> = gh.get()?;
     let mut result = HashMap::new();
-
     for (repo, events) in group_by_repos(&events) {
         let payloads: Vec<&EventPayload> = events
             .into_iter()
@@ -373,7 +476,7 @@ pub fn fetch(
             .flatten()
             .collect();
 
-        let events = c.convert(&payloads);
+        let events = convert(user, issue_comments, &payloads)?;
 
         if !events.is_empty() {
             result.insert(repo.clone(), events);
