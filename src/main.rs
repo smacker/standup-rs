@@ -26,12 +26,12 @@ struct Opt {
         short = "s",
         long,
         default_value = "yesterday",
-        parse(try_from_str = "parse_since")
+        parse(try_from_str = parse_since)
     )]
     /// Valid values: yesterday, friday, today, yyyy-mm-dd
     since: DateTime<Utc>,
 
-    #[structopt(short = "u", long, parse(try_from_str = "parse_until"))]
+    #[structopt(short = "u", long, parse(try_from_str = parse_until))]
     /// Valid values: today, yyyy-mm-dd
     until: Option<DateTime<Utc>>,
 
